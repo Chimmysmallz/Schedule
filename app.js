@@ -30,6 +30,15 @@ function dateKey(date) {
   return `${y}-${m}-${d}`;
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function renderCalendar() {
   const year = displayedDate.getFullYear();
   const month = displayedDate.getMonth();
@@ -67,7 +76,7 @@ function renderCalendar() {
         card.innerHTML = `
           <span class="thumb">${post.format === "reel" ? "▶" : post.format === "carousel" ? "▦" : "◉"}</span>
           <span class="post-card-copy">
-            <strong>${post.title}</strong>
+            <strong>${escapeHtml(post.title)}</strong>
             <small>${post.time}</small>
             <span class="platform-badge">${post.platform === "tiktok" ? "♪" : "◎"}</span>
           </span>`;
@@ -171,15 +180,18 @@ document.getElementById("schedulePost").addEventListener("click", () => {
   }
 
   const title = caption.value.trim() || `${selectedFormat} post`;
-  scheduledPosts.push({
-    date: postDate.value,
-    time: new Date(`2026-01-01T${postTime.value}`).toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit"
-    }),
-    title,
-    format: selectedFormat.toLowerCase(),
-    platform: selectedPlatforms[0]
+  const time = new Date(`2026-01-01T${postTime.value}`).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  });
+  selectedPlatforms.forEach(platform => {
+    scheduledPosts.push({
+      date: postDate.value,
+      time,
+      title,
+      format: selectedFormat.toLowerCase(),
+      platform
+    });
   });
   closeComposer();
   caption.value = "";
