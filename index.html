@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f7f5" />
+    <title>Postflow — Social scheduling</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#" aria-label="Postflow home">
+        <span class="brand-mark">P</span>
+        <span>postflow</span>
+      </a>
+
+      <nav class="nav" aria-label="Main navigation">
+        <button class="nav-item active" data-view="calendar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+          <span>Calendar</span>
+        </button>
+        <button class="nav-item" data-view="posts">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m7 16 3.5-3.5 2.5 2.5 4-5 2 2"/></svg>
+          <span>Posts</span>
+        </button>
+        <button class="nav-item" data-view="analytics">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+          <span>Analytics</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="nav-item">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 1.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2H12V20a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L7.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 6 14H5.8v-2.6H6a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1L9 6.6l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V5h2.6v.2a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.5 8l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.3v2.6H20a1.7 1.7 0 0 0-1.6 1.4Z"/></svg>
+          <span>Settings</span>
+        </button>
+        <button class="profile" aria-label="Open profile">
+          <span class="avatar">AM</span>
+          <span class="profile-copy"><strong>Alex Morgan</strong><small>alex@studio.co</small></span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Workspace</p>
+          <h1>Content calendar</h1>
+        </div>
+        <button class="primary-button" id="newPostButton">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          New post
+        </button>
+      </header>
+
+      <section class="toolbar" aria-label="Calendar controls">
+        <div class="month-controls">
+          <button class="icon-button" id="prevMonth" aria-label="Previous month">
+            <svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <button class="today-button" id="todayButton">Today</button>
+          <button class="icon-button" id="nextMonth" aria-label="Next month">
+            <svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+          <h2 id="monthLabel">November 2026</h2>
+        </div>
+        <div class="filters">
+          <label class="filter-select">
+            <span class="filter-dot instagram"></span>
+            <select id="platformFilter" aria-label="Filter by platform">
+              <option value="all">All platforms</option>
+              <option value="instagram">Instagram</option>
+              <option value="tiktok">TikTok</option>
+            </select>
+          </label>
+          <button class="view-button" id="viewMenu" aria-label="Calendar view">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            Month
+          </button>
+        </div>
+      </section>
+
+      <section class="calendar-card" aria-label="Content calendar">
+        <div class="weekdays">
+          <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+        </div>
+        <div class="calendar-grid" id="calendarGrid"></div>
+      </section>
+    </main>
+
+    <div class="modal-backdrop" id="composeModal" aria-hidden="true">
+      <section class="composer" role="dialog" aria-modal="true" aria-labelledby="composerTitle">
+        <header class="composer-header">
+          <div>
+            <p class="eyebrow">Create content</p>
+            <h2 id="composerTitle">New post</h2>
+          </div>
+          <button class="icon-button" id="closeModal" aria-label="Close composer">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+
+        <div class="composer-body">
+          <div class="media-column">
+            <label class="field-label">Media</label>
+            <button class="media-upload" id="mediaUpload">
+              <span class="upload-icon">
+                <svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 14v5h14v-5"/></svg>
+              </span>
+              <strong>Add photos or video</strong>
+              <small>Drag and drop or browse</small>
+              <input type="file" id="mediaInput" accept="image/*,video/*" multiple hidden />
+            </button>
+
+            <div class="format-row" role="radiogroup" aria-label="Post format">
+              <button class="format-option active" data-format="Post">Post</button>
+              <button class="format-option" data-format="Carousel">Carousel</button>
+              <button class="format-option" data-format="Reel">Reel</button>
+            </div>
+          </div>
+
+          <div class="details-column">
+            <label class="field-label" for="caption">Caption</label>
+            <textarea id="caption" rows="5" placeholder="Write a caption..."></textarea>
+            <div class="character-count"><span id="characterCount">0</span> / 2,200</div>
+
+            <label class="field-label">Platforms</label>
+            <div class="platform-row">
+              <button class="platform-choice active" data-platform="instagram">
+                <span class="platform-icon instagram">◎</span> Instagram
+              </button>
+              <button class="platform-choice" data-platform="tiktok">
+                <span class="platform-icon tiktok">♪</span> TikTok
+              </button>
+            </div>
+
+            <div class="schedule-row">
+              <div>
+                <label class="field-label" for="postDate">Date</label>
+                <input type="date" id="postDate" />
+              </div>
+              <div>
+                <label class="field-label" for="postTime">Time</label>
+                <input type="time" id="postTime" value="18:30" />
+              </div>
+            </div>
+            <button class="best-time" id="bestTime">
+              <span>
+                <svg viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-13h-7V2Z"/></svg>
+              </span>
+              <span><strong>Use best time</strong><small>Recommended: Today at 6:30 PM</small></span>
+              <svg class="chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <footer class="composer-footer">
+          <button class="secondary-button" id="saveDraft">Save draft</button>
+          <button class="primary-button" id="schedulePost">Schedule post</button>
+        </footer>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
