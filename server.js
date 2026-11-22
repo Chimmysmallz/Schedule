@@ -173,7 +173,7 @@ async function uploadToSupabaseStorage(fileName, buffer, mimeType) {
   const objectPath = fileName.split("/").map(encodeURIComponent).join("/");
   const response = await fetch(`${supabaseUrl}/storage/v1/object/${storageBucket}/${objectPath}`, {
     method: "POST",
-    headers: { apikey: supabaseSecretKey, Authorization: "Bearer " + supabaseSecretKey, "Content-Type": mimeType, "x-upsert": "false" },
+    headers: { apikey: supabaseSecretKey, "Content-Type": mimeType, "x-upsert": "false" },
     body: buffer
   });
   if (!response.ok) throw new Error("Supabase media upload failed: " + (await response.text()).slice(0, 300));
