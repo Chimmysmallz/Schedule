@@ -8,7 +8,6 @@ async function request(path, options = {}) {
     ...options,
     headers: {
       apikey: secretKey,
-      Authorization: "Bearer " + secretKey,
       "Content-Type": "application/json",
       ...(options.headers || {})
     }
