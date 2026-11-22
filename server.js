@@ -4,7 +4,7 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const store = require("./store");
-const { publishPost } = require("./socialProviders");
+const { publishPost, getTikTokPublishStatus } = require("./socialProviders");
 const { generateCopy } = require("./contentEngine");
 const { renderContentCard } = require("./renderContent");
 
@@ -154,38 +154,53 @@ async function handleMediaUpload(request, response) {
 }
 
 async function processDuePosts() {
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const due = store.duePosts(nowIso);
-  for (const post of due) {
-    const leasePost = store.update(post.id, { status: "processing", error: null, failedAt: null });
-    if (!leasePost) continue;
-    try {
-      const providerResult = publishMode === "dry-run"
-        ? { mode: "dry-run" }
-        : await publishPost(post, post.platform);
-      store.update(post.id, {
-        status: "published",
-        publishedAt: new Date().toISOString(),
-        providerResponse: providerResult,
-        error: null
-      });
-    } catch (error) {
-      const retryCount = post.retryCount + 1;
-      const backoffMinutes = Math.min(60, 2 ** (retryCount - 1));
-      const retryAt = new Date(Date.now() + backoffMinutes * 60_000).toISOString();
-      store.update(post.id, {
-        status: retryCount >= 5 ? "failed" : "failed",
-        retryCount,
-        retryAt: retryCount >= 5 ? null : retryAt,
-        failedAt: new Date().toISOString(),
-        error: error instanceof Error ? error.message : String(error)
-      });
+  if (processingPromise) return processingPromise;
+  processingPromise = (async () => {
+    const nowIso = new Date().toISOString();
+    const due = store.claimDuePosts(nowIso, Number(process.env.SCHEDULER_BATCH_SIZE || 10));
+    for (const post of due) {
+      try {
+        const result = publishMode === 'dry-run' ? { mode: 'dry-run' } : await publishPost(post, post.platform);
+        if (result.pending) {
+          store.update(post.id, { status: 'publishing', providerResponse: result, error: null, retryAt: null });
+        } else {
+          store.update(post.id, { status: 'published', publishedAt: new Date().toISOString(), providerResponse: result, error: null, retryAt: null });
+        }
+      } catch (error) {
+        const retryCount = post.retryCount + 1;
+        const terminal = retryCount >= 5 || error.retryable === false;
+        const delayMs = Math.min(6 * 60 * 60 * 1000, 60_000 * (2 ** Math.min(retryCount - 1, 8)));
+        const retryAt = terminal ? null : new Date(Date.now() + delayMs).toISOString();
+        store.update(post.id, { status: 'failed', retryCount, retryAt, failedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
+      }
     }
-  }
-  return due.length;
+    if (publishMode === 'live') await pollPublishingPosts();
+    return due.length;
+  })();
+  try { return await processingPromise; } finally { processingPromise = null; }
 }
 
+async function pollPublishingPosts() {
+  const pending = store.list().filter(post => post.status === 'publishing' && post.platform === 'tiktok' && post.providerResponse?.publish_id);
+  for (const post of pending.slice(0, 10)) {
+    try {
+      const statusResult = await getTikTokPublishStatus(post.providerResponse.publish_id);
+      const status = statusResult.data?.status;
+      if (status === 'PUBLISH_COMPLETE') {
+        store.update(post.id, { status: 'published', publishedAt: new Date().toISOString(), providerResponse: { ...post.providerResponse, status: statusResult.data } });
+      } else if (status === 'FAILED') {
+        const retryCount = post.retryCount + 1;
+        const terminal = retryCount >= 5;
+        const retryAt = terminal ? null : new Date(Date.now() + Math.min(6 * 60 * 60 * 1000, 60_000 * (2 ** (retryCount - 1)))).toISOString();
+        store.update(post.id, { status: 'failed', retryCount, retryAt, failedAt: new Date().toISOString(), error: statusResult.data?.fail_reason || 'TikTok publishing failed' });
+      } else {
+        store.update(post.id, { providerResponse: { ...post.providerResponse, status: statusResult.data } });
+      }
+    } catch (error) {
+      console.error('TikTok status check failed for ' + post.id + ':', error.message);
+    }
+  }
+}
 function createServer() {
   return http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
