@@ -55,7 +55,9 @@ function postDateParts(post) {
 
 async function loadPosts() {
   try {
-    const { data: { session } } = await supabaseClient.auth.getSession();\n    if (!session) { scheduledPosts = []; renderCalendar(); return; }\n    const response = await apiFetch("/posts");
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) { scheduledPosts = []; renderCalendar(); return; }
+    const response = await apiFetch("/posts");
     if (!response.ok) throw new Error("Could not load posts");
     const posts = await response.json();
     scheduledPosts = posts.map(post => ({
