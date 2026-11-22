@@ -5,6 +5,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BUCKET = "postflow-media";
+const OWNER_USER_ID = Deno.env.get("POSTFLOW_OWNER_USER_ID") ?? "";
 const allowedOrigin = Deno.env.get("POSTFLOW_ALLOWED_ORIGIN") ?? "https://chimmysmallz.github.io";
 
 const headers = (origin: string | null) => ({
@@ -59,6 +60,7 @@ Deno.serve(async (req: Request) => {
     const userClient = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false } });
     const { data: userData, error: authError } = await userClient.auth.getUser(token);
     if (authError || !userData.user) return json({ error: "Session expired. Please sign in again." }, 401, origin);
+    if (!OWNER_USER_ID || userData.user.id !== OWNER_USER_ID) return json({ error: "This Postflow account is not authorised." }, 403, origin);
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
     const url = new URL(req.url);
     const route = url.pathname.split("/").filter(Boolean).slice(-1)[0] ?? "";
