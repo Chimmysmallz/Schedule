@@ -220,14 +220,14 @@ async function processDuePosts() {
         if (result.pending) {
           await store.update(post.id, { status: 'publishing', providerResponse: result, error: null, retryAt: null });
         } else {
-          store.update(post.id, { status: 'published', publishedAt: new Date().toISOString(), providerResponse: result, error: null, retryAt: null });
+          await store.update(post.id, { status: 'published', publishedAt: new Date().toISOString(), providerResponse: result, error: null, retryAt: null });
         }
       } catch (error) {
         const retryCount = post.retryCount + 1;
         const terminal = retryCount >= 5 || error.retryable === false;
         const delayMs = Math.min(6 * 60 * 60 * 1000, 60_000 * (2 ** Math.min(retryCount - 1, 8)));
         const retryAt = terminal ? null : new Date(Date.now() + delayMs).toISOString();
-        store.update(post.id, { status: 'failed', retryCount, retryAt, failedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
+        await store.update(post.id, { status: 'failed', retryCount, retryAt, failedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
       }
     }
     if (publishMode === 'live') await pollPublishingPosts();
@@ -448,7 +448,7 @@ function createServer() {
           return;
         }
         const id = decodeURIComponent(retryMatch[1]);
-        const current = store.get(id);
+        const current = await store.get(id);
         if (!current) {
           sendJson(response, 404, { error: "Post not found" });
           return;
