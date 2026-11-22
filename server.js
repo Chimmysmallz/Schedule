@@ -134,7 +134,7 @@ function validatePostBody(body) {
   if (typeof body.caption !== "string" && body.caption !== undefined) {
     return "caption must be text";
   }
-  if (body.privacyLevel !== undefined && typeof body.privacyLevel !== "string") {
+  if (body.privacyLevel != null && typeof body.privacyLevel !== "string") {
     return "privacyLevel must be text";
   }
   if (publishMode === "live" && body.platform === "tiktok" && (body.status || "scheduled") === "scheduled" && !body.privacyLevel) {
