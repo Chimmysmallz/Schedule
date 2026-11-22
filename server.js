@@ -18,6 +18,7 @@ const maxRequestBytes = Number(process.env.MAX_REQUEST_BYTES || 12 * 1024 * 1024
 const sessions = new Map();
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 43200000);
 const loginFailures = new Map();
+let processingPromise = null;
 
 fs.mkdirSync(mediaDir, { recursive: true });
 
@@ -79,7 +80,7 @@ async function serveStatic(requestPath, response) {
 
 function sessionFromRequest(request) {
   const cookie = request.headers.cookie || '';
-  const match = cookie.match(/(?:^|;\\s*)postflow_session=([^;]+)/);
+  const match = cookie.match(/(?:^|;\s*)postflow_session=([^;]+)/);
   if (!match) return null;
   const token = decodeURIComponent(match[1]);
   const session = sessions.get(token);
@@ -136,16 +137,16 @@ function validatePostBody(body) {
   if (!Array.isArray(body.media)) return "media must be an array";
   if (body.media.length > 10) return "At most 10 media items are allowed";
   const mediaTypes = body.media.map(item => typeof item === "string"
-    ? (/\\.mp4(?:$|\\?)/i.test(item) ? "video" : "image")
+    ? (/\.mp4(?:$|\?)/i.test(item) ? "video" : "image")
     : item?.type?.startsWith("video/") ? "video" : "image");
   const format = body.format || "post";
-  if (body.platform === "instagram") {
+  if ((body.status || "scheduled") !== "draft" && body.platform === "instagram") {
     if (format === "carousel" && (mediaTypes.length < 2 || mediaTypes.length > 10)) return "Instagram carousels require 2 to 10 media items";
     if (format !== "carousel" && mediaTypes.length !== 1) return "Instagram posts and Reels require exactly one media item";
     if (format === "reel" && mediaTypes[0] !== "video") return "Instagram Reels require a video";
     if (format === "post" && mediaTypes[0] !== "image") return "Instagram feed posts require an image. Choose Reel for video.";
   }
-  if (body.platform === "tiktok") {
+  if ((body.status || "scheduled") !== "draft" && body.platform === "tiktok") {
     if (format === "carousel" && (mediaTypes.length < 2 || mediaTypes.some(type => type !== "image"))) return "TikTok photo carousels require 2 to 10 images";
     if (format === "reel" && (mediaTypes.length !== 1 || mediaTypes[0] !== "video")) return "TikTok videos require exactly one video";
     if (format === "post" && (mediaTypes.length !== 1 || !mediaTypes[0])) return "TikTok posts require exactly one image or video";
@@ -273,7 +274,7 @@ function createServer() {
       if (request.method === "POST" && url.pathname === "/api/logout") {
         if (!validateSameOrigin(request)) { sendJson(response, 403, { error: 'Cross-origin request rejected' }); return; }
         const cookie = request.headers.cookie || '';
-        const match = cookie.match(/(?:^|;\\s*)postflow_session=([^;]+)/);
+        const match = cookie.match(/(?:^|;\s*)postflow_session=([^;]+)/);
         if (match) sessions.delete(decodeURIComponent(match[1]));
         const secure = secureCookie(request) ? '; Secure' : '';
         response.writeHead(204, { 'Set-Cookie': 'postflow_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' + secure, 'Cache-Control': 'no-store' });
