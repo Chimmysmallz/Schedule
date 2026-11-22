@@ -99,7 +99,7 @@ function validateSameOrigin(request) {
 }
 
 function secureCookie(request) {
-  return process.env.COOKIE_SECURE === 'true' || (process.env.COOKIE_SECURE !== 'false' && Boolean(request.socket.encrypted));
+  return publishMode === 'live' || process.env.COOKIE_SECURE === 'true' || (process.env.COOKIE_SECURE !== 'false' && Boolean(request.socket.encrypted));
 }
 
 function loginRateLimited(request) {
@@ -466,6 +466,10 @@ function createServer() {
 if (require.main === module) {
   if (publishMode === "live" && !appPassword) {
     console.error("APP_PASSWORD is required when PUBLISH_MODE=live");
+    process.exit(1);
+  }
+  if (publishMode === "live" && !publicBaseUrl.startsWith("https://")) {
+    console.error("PUBLIC_BASE_URL must be an HTTPS URL when PUBLISH_MODE=live");
     process.exit(1);
   }
   const server = createServer();
