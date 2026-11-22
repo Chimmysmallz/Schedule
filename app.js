@@ -402,8 +402,8 @@ document.getElementById("saveDraft").addEventListener("click", async () => {
   };
   try {
     const method = editingPostId ? "PATCH" : "POST";
-    const url = editingPostId ? `/api/posts/${encodeURIComponent(editingPostId)}` : "/api/posts";
-    const response = await fetch(url, {
+    const url = editingPostId ? `/posts?id=${encodeURIComponent(editingPostId)}` : "/posts";
+    const response = await apiFetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
@@ -449,7 +449,7 @@ document.getElementById("schedulePost").addEventListener("click", async () => {
         media: pendingMedia
       };
       const isEditing = Boolean(editingPostId);
-      const response = await fetch(isEditing ? `/api/posts/${encodeURIComponent(editingPostId)}` : "/api/posts", {
+      const response = await apiFetch(isEditing ? `/posts?id=${encodeURIComponent(editingPostId)}` : "/posts", {
         method: isEditing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
