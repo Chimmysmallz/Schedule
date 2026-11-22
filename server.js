@@ -243,14 +243,14 @@ async function pollPublishingPosts() {
       const statusResult = await getTikTokPublishStatus(post.providerResponse.publish_id);
       const status = statusResult.data?.status;
       if (status === 'PUBLISH_COMPLETE') {
-        store.update(post.id, { status: 'published', publishedAt: new Date().toISOString(), providerResponse: { ...post.providerResponse, status: statusResult.data } });
+        await store.update(post.id, { status: 'published', publishedAt: new Date().toISOString(), providerResponse: { ...post.providerResponse, status: statusResult.data } });
       } else if (status === 'FAILED') {
         const retryCount = post.retryCount + 1;
         const terminal = retryCount >= 5;
         const retryAt = terminal ? null : new Date(Date.now() + Math.min(6 * 60 * 60 * 1000, 60_000 * (2 ** (retryCount - 1)))).toISOString();
-        store.update(post.id, { status: 'failed', retryCount, retryAt, failedAt: new Date().toISOString(), error: statusResult.data?.fail_reason || 'TikTok publishing failed' });
+        await store.update(post.id, { status: 'failed', retryCount, retryAt, failedAt: new Date().toISOString(), error: statusResult.data?.fail_reason || 'TikTok publishing failed' });
       } else {
-        store.update(post.id, { providerResponse: { ...post.providerResponse, status: statusResult.data } });
+        await store.update(post.id, { providerResponse: { ...post.providerResponse, status: statusResult.data } });
       }
     } catch (error) {
       console.error('TikTok status check failed for ' + post.id + ':', error.message);
