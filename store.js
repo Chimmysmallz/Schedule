@@ -89,7 +89,7 @@ function fromRow(row) {
   };
 }
 
-const store = {
+const sqliteStore = {
   list() {
     return database.prepare("SELECT * FROM posts ORDER BY created_at DESC").all().map(fromRow);
   },
@@ -157,4 +157,17 @@ const store = {
   }
 };
 
-module.exports = store;
+const sqliteStoreAsync = {
+  list: async () => sqliteStore.list(),
+  get: async id => sqliteStore.get(id),
+  create: async post => sqliteStore.create(post),
+  update: async (id, changes) => sqliteStore.update(id, changes),
+  delete: async id => sqliteStore.delete(id),
+  claimDuePosts: async (now, limit) => sqliteStore.claimDuePosts(now, limit),
+  duePosts: async now => sqliteStore.duePosts(now),
+  close: () => sqliteStore.close()
+};
+
+module.exports = process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY
+  ? require("./supabaseStore")
+  : sqliteStoreAsync;
