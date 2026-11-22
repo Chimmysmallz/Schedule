@@ -135,6 +135,21 @@ function validatePostBody(body) {
   }
   if (!Array.isArray(body.media)) return "media must be an array";
   if (body.media.length > 10) return "At most 10 media items are allowed";
+  const mediaTypes = body.media.map(item => typeof item === "string"
+    ? (/\\.mp4(?:$|\\?)/i.test(item) ? "video" : "image")
+    : item?.type?.startsWith("video/") ? "video" : "image");
+  const format = body.format || "post";
+  if (body.platform === "instagram") {
+    if (format === "carousel" && (mediaTypes.length < 2 || mediaTypes.length > 10)) return "Instagram carousels require 2 to 10 media items";
+    if (format !== "carousel" && mediaTypes.length !== 1) return "Instagram posts and Reels require exactly one media item";
+    if (format === "reel" && mediaTypes[0] !== "video") return "Instagram Reels require a video";
+    if (format === "post" && mediaTypes[0] !== "image") return "Instagram feed posts require an image. Choose Reel for video.";
+  }
+  if (body.platform === "tiktok") {
+    if (format === "carousel" && (mediaTypes.length < 2 || mediaTypes.some(type => type !== "image"))) return "TikTok photo carousels require 2 to 10 images";
+    if (format === "reel" && (mediaTypes.length !== 1 || mediaTypes[0] !== "video")) return "TikTok videos require exactly one video";
+    if (format === "post" && (mediaTypes.length !== 1 || !mediaTypes[0])) return "TikTok posts require exactly one image or video";
+  }
   if (body.title.length > 2200 || (body.caption || "").length > 2200) {
     return "Title or caption is too long";
   }
