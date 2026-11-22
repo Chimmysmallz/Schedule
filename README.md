@@ -67,7 +67,7 @@ npm start
 - Postflow uses expiring, HTTP-only, SameSite session cookies and rate-limits failed password attempts. Live mode always marks the session cookie Secure.
 - Instagram supports single-image feed posts, single-video Reels, and mixed image/video carousels. Video and carousel containers are checked for readiness before publishing.
 - TikTok supports single-video posts and photo posts/carousels. It queries creator settings before initiating a post and checks the publish status instead of marking an upload as published immediately.
-- TikTok privacy defaults to `SELF_ONLY` for safe initial tests. Set `TIKTOK_PRIVACY_LEVEL` only to a value returned by TikTok's creator-info endpoint.
+- The TikTok composer loads the creator's available privacy options and requires an explicit visibility choice. Dry-run mode offers `SELF_ONLY` as a local placeholder; live publishing validates the selected value against TikTok's current creator settings.
 - TikTok direct posting requires an approved Content Posting API app, the `video.publish` scope, and a verified domain or URL prefix for media pulled from your server. Unaudited apps are restricted to private visibility.
 - The scheduler atomically claims due posts, prevents overlapping runs within one server process, and retries failed attempts with exponential backoff (up to five attempts).
 - Use mocked provider tests first. Do not enable live publishing until you have completed the platform app review, configured verified HTTPS media hosting, and tested with private/test content.
