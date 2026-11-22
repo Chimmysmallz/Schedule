@@ -84,6 +84,7 @@ test("TikTok rejects mixed photo and video carousels", async t => {
   t.after(() => mock.restoreAll());
   await assert.rejects(() => publishTikTok({
     format: "carousel",
+    privacyLevel: "SELF_ONLY",
     media: [
       { url: "https://cdn.example/one.jpg", type: "image/jpeg" },
       { url: "https://cdn.example/two.mp4", type: "video/mp4" }
