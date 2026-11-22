@@ -27,6 +27,11 @@ database.exec(`
   );
 `);
 
+const postColumns = database.prepare("PRAGMA table_info(posts)").all();
+if (!postColumns.some(column => column.name === "privacy_level")) {
+  database.exec("ALTER TABLE posts ADD COLUMN privacy_level TEXT");
+}
+
 function migrateJsonPosts() {
   const oldFile = path.join(dataDir, "posts.json");
   if (!fs.existsSync(oldFile)) return;
@@ -79,7 +84,8 @@ function fromRow(row) {
     error: row.error,
     createdAt: row.created_at,
     publishedAt: row.published_at,
-    failedAt: row.failed_at
+    failedAt: row.failed_at,
+    privacyLevel: row.privacy_level || null
   };
 }
 
@@ -94,11 +100,11 @@ const store = {
     database.prepare(`
       INSERT INTO posts (
         id,title,caption,format,platform,scheduled_at,media,status,retry_count,
-        retry_at,created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?, ?,?)
+        retry_at,created_at,privacy_level
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       post.id, post.title, post.caption, post.format, post.platform, post.scheduledAt,
-      JSON.stringify(post.media), post.status, 0, null, post.createdAt
+      JSON.stringify(post.media), post.status, 0, null, post.createdAt, post.privacyLevel || null
     );
     return this.get(post.id);
   },
@@ -108,7 +114,7 @@ const store = {
     const next = { ...current, ...changes };
     database.prepare(`
       UPDATE posts SET title=?,caption=?,format=?,platform=?,scheduled_at=?,media=?,
-      status=?,retry_count=?,retry_at=?,provider_response=?,error=?,published_at=?,failed_at=?
+      status=?,retry_count=?,retry_at=?,provider_response=?,error=?,published_at=?,failed_at=?,privacy_level=?
       WHERE id=?
     `).run(
       next.title,
@@ -124,6 +130,7 @@ const store = {
       next.error,
       next.publishedAt,
       next.failedAt,
+      next.privacyLevel || null,
       id
     );
     return this.get(id);
