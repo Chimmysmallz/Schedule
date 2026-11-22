@@ -10,6 +10,8 @@ const postTime = document.getElementById("postTime");
 let displayedDate = new Date();
 let selectedFormat = "Post";
 let selectedPlatforms = ["instagram"];
+let selectedPrivacyLevel = "";
+let publishMode = "dry-run";
 let scheduledPosts = [];
 let pendingMedia = [];
 let editingPostId = null;
@@ -58,6 +60,7 @@ async function loadAuth() {
     const response = await fetch("/api/config");
     if (!response.ok) return;
     const config = await response.json();
+    publishMode = config.publishMode || "dry-run";
     const authButton = document.getElementById("authButton");
     authButton.hidden = !config.authRequired;
     authButton.textContent = config.authenticated ? "Sign out" : "Sign in";
@@ -83,6 +86,55 @@ document.getElementById("authButton").addEventListener("click", async event => {
     }
   }
   await loadAuth();
+});
+
+async function loadTikTokPrivacyOptions() {
+  const field = document.getElementById("tiktokPrivacyField");
+  const select = document.getElementById("tiktokPrivacy");
+  const help = document.getElementById("tiktokPrivacyHelp");
+  if (!selectedPlatforms.includes("tiktok")) {
+    field.hidden = true;
+    return;
+  }
+  field.hidden = false;
+  select.innerHTML = '<option value="">Choose visibility</option>';
+  try {
+    const configResponse = await fetch("/api/config");
+    const config = await configResponse.json();
+    let options;
+    if (config.providers?.tiktok) {
+      const response = await fetch("/api/tiktok/creator-info");
+      if (!response.ok) throw new Error("Could not load TikTok account settings");
+      const creator = await response.json();
+      options = creator.privacyLevelOptions || [];
+      help.textContent = "Choose who can view this post on TikTok.";
+    } else if (config.publishMode === "dry-run") {
+      options = ["SELF_ONLY"];
+      help.textContent = "Dry-run mode only. Connect TikTok to load your account's actual privacy options.";
+    } else {
+      throw new Error("TikTok is not connected");
+    }
+    for (const option of options) {
+      const item = document.createElement("option");
+      item.value = option;
+      item.textContent = ({
+        PUBLIC_TO_EVERYONE: "Everyone",
+        MUTUAL_FOLLOW_FRIENDS: "Friends",
+        FOLLOWER_OF_CREATOR: "Followers",
+        SELF_ONLY: "Only me"
+      })[option] || option;
+      select.appendChild(item);
+    }
+    if (options.includes(selectedPrivacyLevel)) select.value = selectedPrivacyLevel;
+    else select.value = "";
+  } catch (error) {
+    help.textContent = error.message;
+    showToast("Could not load TikTok visibility options");
+  }
+}
+
+document.getElementById("tiktokPrivacy").addEventListener("change", event => {
+  selectedPrivacyLevel = event.target.value;
 });
 
 function renderCalendar() {
@@ -157,7 +209,11 @@ function openComposer(date, post) {
   if (post) {
     caption.value = post.caption || "";
     characterCount.textContent = caption.value.length;
+    selectedPrivacyLevel = post.privacyLevel || "";
+  } else {
+    selectedPrivacyLevel = "";
   }
+  loadTikTokPrivacyOptions();
   modal.classList.add("open");
   modal.setAttribute("aria-hidden", "false");
   caption.focus();
@@ -236,6 +292,7 @@ document.querySelectorAll(".platform-choice").forEach(button => {
       button.classList.add("active");
       if (!selectedPlatforms.includes(platform)) selectedPlatforms.push(platform);
     }
+    loadTikTokPrivacyOptions();
   });
 });
 
@@ -332,6 +389,7 @@ document.getElementById("saveDraft").addEventListener("click", async () => {
     caption: caption.value.trim(),
     format: selectedFormat.toLowerCase(),
     platform: selectedPlatforms[0],
+    privacyLevel: selectedPrivacyLevel || null,
     status: "draft",
     media: pendingMedia
   };
@@ -378,6 +436,7 @@ document.getElementById("schedulePost").addEventListener("click", async () => {
         caption: caption.value.trim(),
         format: selectedFormat.toLowerCase(),
         platform,
+        privacyLevel: platform === "tiktok" ? selectedPrivacyLevel : null,
         scheduledAt,
         status: "scheduled",
         media: pendingMedia
