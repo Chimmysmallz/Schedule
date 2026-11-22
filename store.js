@@ -131,13 +131,19 @@ const store = {
   delete(id) {
     return database.prepare("DELETE FROM posts WHERE id = ?").run(id).changes > 0;
   },
+  claimDuePosts(now, limit = 10) {
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      const rows = database.prepare("SELECT id FROM posts WHERE (status='scheduled' AND scheduled_at <= ?) OR (status='failed' AND retry_count < 5 AND retry_at IS NOT NULL AND retry_at <= ?) ORDER BY created_at LIMIT ?").all(now, now, limit);
+      if (!rows.length) { database.exec('COMMIT'); return []; }
+      const placeholders = rows.map(() => '?').join(',');
+      const claimed = database.prepare("UPDATE posts SET status='processing' WHERE id IN (" + placeholders + ") RETURNING *").all(...rows.map(row => row.id));
+      database.exec('COMMIT');
+      return claimed.map(fromRow);
+    } catch (error) { database.exec('ROLLBACK'); throw error; }
+  },
   duePosts(now) {
-    return database.prepare(`
-      SELECT * FROM posts
-      WHERE (status='scheduled' AND scheduled_at <= ?)
-         OR (status='failed' AND retry_count < 5 AND retry_at <= ?)
-      ORDER BY created_at
-    `).all(now, now).map(fromRow);
+    return database.prepare("SELECT * FROM posts WHERE (status='scheduled' AND scheduled_at <= ?) OR (status='failed' AND retry_count < 5 AND retry_at IS NOT NULL AND retry_at <= ?) ORDER BY created_at").all(now, now).map(fromRow);
   },
   close() {
     database.close();
