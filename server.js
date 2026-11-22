@@ -4,7 +4,7 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const store = require("./store");
-const { publishPost, getTikTokPublishStatus } = require("./socialProviders");
+const { publishPost, getTikTokPublishStatus, getTikTokCreatorInfo } = require("./socialProviders");
 const { generateCopy } = require("./contentEngine");
 const { renderContentCard } = require("./renderContent");
 
@@ -133,6 +133,12 @@ function validatePostBody(body) {
   }
   if (typeof body.caption !== "string" && body.caption !== undefined) {
     return "caption must be text";
+  }
+  if (body.privacyLevel !== undefined && typeof body.privacyLevel !== "string") {
+    return "privacyLevel must be text";
+  }
+  if (publishMode === "live" && body.platform === "tiktok" && (body.status || "scheduled") === "scheduled" && !body.privacyLevel) {
+    return "Choose a TikTok privacy level before scheduling";
   }
   if (!Array.isArray(body.media)) return "media must be an array";
   if (body.media.length > 10) return "At most 10 media items are allowed";
@@ -281,6 +287,21 @@ function createServer() {
         response.end();
         return;
       }
+      if (request.method === "GET" && url.pathname === "/api/tiktok/creator-info") {
+        if (!isAuthenticated(request)) {
+          sendJson(response, 401, { error: "Authentication required" });
+          return;
+        }
+        const creator = await getTikTokCreatorInfo();
+        sendJson(response, 200, {
+          privacyLevelOptions: creator.privacy_level_options || [],
+          commentDisabled: Boolean(creator.comment_disabled),
+          duetDisabled: Boolean(creator.duet_disabled),
+          stitchDisabled: Boolean(creator.stitch_disabled)
+        });
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/content/generate") {
         if (!isAuthenticated(request)) {
           sendJson(response, 401, { error: "Authentication required" });
@@ -352,6 +373,7 @@ function createServer() {
           platform: body.platform,
           scheduledAt: status === "scheduled" ? new Date(body.scheduledAt).toISOString() : null,
           media: body.media,
+          privacyLevel: body.privacyLevel || null,
           status,
           createdAt: new Date().toISOString()
         });
@@ -380,6 +402,7 @@ function createServer() {
             platform: body.platform ?? current.platform,
             scheduledAt: body.scheduledAt ? new Date(body.scheduledAt).toISOString() : current.scheduledAt,
             media: body.media ?? current.media,
+            privacyLevel: body.privacyLevel ?? current.privacyLevel,
             status: body.status ?? current.status
           };
           const validationError = validatePostBody({ ...merged, status: merged.status });
