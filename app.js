@@ -1,3 +1,16 @@
+const postflowConfig = window.POSTFLOW_CONFIG || {};
+const supabaseClient = window.supabase?.createClient(postflowConfig.supabaseUrl, postflowConfig.supabasePublishableKey);
+const apiBase = `${postflowConfig.supabaseUrl}/functions/v1/postflow-api`;
+
+async function apiFetch(path, options = {}) {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session?.access_token) throw new Error("Please sign in first");
+  return fetch(`${apiBase}${path}`, {
+    ...options,
+    headers: { "Content-Type":"application/json", ...(options.headers || {}), Authorization:`Bearer ${session.access_token}`, apikey:postflowConfig.supabasePublishableKey }
+  });
+}
+
 const monthLabel = document.getElementById("monthLabel");
 const calendarGrid = document.getElementById("calendarGrid");
 const modal = document.getElementById("composeModal");
@@ -42,7 +55,7 @@ function postDateParts(post) {
 
 async function loadPosts() {
   try {
-    const response = await fetch("/api/posts");
+    const { data: { session } } = await supabaseClient.auth.getSession();\n    if (!session) { scheduledPosts = []; renderCalendar(); return; }\n    const response = await apiFetch("/posts");
     if (!response.ok) throw new Error("Could not load posts");
     const posts = await response.json();
     scheduledPosts = posts.map(post => ({
@@ -50,42 +63,36 @@ async function loadPosts() {
       ...postDateParts(post)
     }));
   } catch {
-    scheduledPosts = JSON.parse(localStorage.getItem("postflow.posts") || "[]");
+    scheduledPosts = [];
   }
   renderCalendar();
 }
 
 async function loadAuth() {
-  try {
-    const response = await fetch("/api/config");
-    if (!response.ok) return;
-    const config = await response.json();
-    publishMode = config.publishMode || "dry-run";
-    const authButton = document.getElementById("authButton");
-    authButton.hidden = !config.authRequired;
-    authButton.textContent = config.authenticated ? "Sign out" : "Sign in";
-  } catch {
-    // The interface remains usable in local development mode.
-  }
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  const authButton = document.getElementById("authButton");
+  authButton.hidden = false;
+  authButton.textContent = session ? "Sign out" : "Sign in";
+  document.getElementById("newPostButton").disabled = !session;
 }
 
-document.getElementById("authButton").addEventListener("click", async event => {
-  if (event.currentTarget.textContent === "Sign out") {
-    await fetch("/api/logout", { method: "POST" });
-  } else {
-    const password = window.prompt("Enter the Postflow password");
-    if (!password) return;
-    const response = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password })
-    });
-    if (!response.ok) {
-      showToast("Sign-in failed");
-      return;
-    }
+document.getElementById("authButton").addEventListener("click", async () => {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session) {
+    await supabaseClient.auth.signOut();
+    scheduledPosts = [];
+    renderCalendar();
+    await loadAuth();
+    return;
   }
+  const email = window.prompt("Postflow sign-in email");
+  if (!email) return;
+  const password = window.prompt("Postflow password");
+  if (!password) return;
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) { showToast(error.message); return; }
   await loadAuth();
+  await loadPosts();
 });
 
 async function loadTikTokPrivacyOptions() {
@@ -99,11 +106,11 @@ async function loadTikTokPrivacyOptions() {
   field.hidden = false;
   select.innerHTML = '<option value="">Choose visibility</option>';
   try {
-    const configResponse = await fetch("/api/config");
+    const configResponse = await apiFetch("/config");
     const config = await configResponse.json();
     let options;
     if (config.providers?.tiktok) {
-      const response = await fetch("/api/tiktok/creator-info");
+      const response = await apiFetch("/tiktok/creator-info");
       if (!response.ok) throw new Error("Could not load TikTok account settings");
       const creator = await response.json();
       options = creator.privacyLevelOptions || [];
@@ -234,7 +241,7 @@ function showToast(message) {
 }
 
 async function retryPost(id) {
-  const response = await fetch(`/api/posts/${encodeURIComponent(id)}/retry`, { method: "POST" });
+  const response = await apiFetch(`/retry?id=${encodeURIComponent(id)}`, { method: "POST" });
   if (!response.ok) {
     showToast("Could not retry post");
     return;
@@ -244,7 +251,7 @@ async function retryPost(id) {
 }
 
 async function cancelPost(id) {
-  const response = await fetch(`/api/posts/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const response = await apiFetch(`/posts?id=${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!response.ok) {
     showToast("Could not cancel post");
     return;
@@ -313,7 +320,7 @@ document.getElementById("mediaInput").addEventListener("change", async event => 
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
-    const response = await fetch("/api/media", {
+    const response = await apiFetch("/media", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: file.name, data })
@@ -341,7 +348,7 @@ document.getElementById("generateContent").addEventListener("click", async () =>
   showToast("Generating copy...");
   try {
     const platform = selectedPlatforms[0];
-    const response = await fetch("/api/content/generate", {
+    const response = await apiFetch("/content/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ topic, platform, tone: "friendly" })
@@ -364,7 +371,7 @@ document.getElementById("renderContent").addEventListener("click", async () => {
   }
   showToast("Rendering Remotion video...");
   try {
-    const response = await fetch("/api/content/render", {
+    const response = await apiFetch("/content/render", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
