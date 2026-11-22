@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: postflow
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUBLISH_MODE
+        value: dry-run
+      - key: SESSION_TTL_MS
+        value: "43200000"
+      - key: APP_PASSWORD
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: PUBLIC_BASE_URL
+        fromService:
+          type: web
+          name: postflow
+          property: host
