@@ -1,0 +1,58 @@
+name: Deploy Postflow to GitHub Pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: "Deploy the static frontend (only after the Supabase API is ready)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: inputs.confirm_deploy == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare static site
+        run: |
+          mkdir -p _site
+          cp index.html app.js styles.css _site/
+          cp postflow-config.js _site/
+          test -s _site/index.html
+          test -s _site/app.js
+          test -s _site/styles.css
+          test -s _site/postflow-config.js
+          if grep -R -nE 'sb_secret_|service_role|SUPABASE_SECRET_KEY|IG_ACCESS_TOKEN|TIKTOK_ACCESS_TOKEN' _site; then
+            echo "A server-side secret was found in the public site artifact."
+            exit 1
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    if: inputs.confirm_deploy == true
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
