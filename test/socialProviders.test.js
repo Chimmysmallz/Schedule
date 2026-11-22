@@ -32,6 +32,7 @@ test("Instagram carousel creates each child before publishing the parent", async
   const calls = [];
   mock.method(global, "fetch", async (url, options) => {
     calls.push({ url: String(url), options });
+    if (String(url).includes("fields=status_code")) return jsonResponse({ status_code: "FINISHED" });
     const body = options?.body ? new URLSearchParams(options.body) : new URLSearchParams();
     if (String(url).includes("media_publish")) return jsonResponse({ id: "published-carousel" });
     if (body.get("media_type") === "CAROUSEL") return jsonResponse({ id: "parent-container" });
