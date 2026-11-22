@@ -7,7 +7,7 @@ function mediaUrl(item) {
 }
 
 function mediaType(item) {
-  if (typeof item === "string") return /\\.mp4(?:$|\\?)/i.test(item) ? "video" : "image";
+  if (typeof item === "string") return /\.mp4(?:$|\?)/i.test(item) ? "video" : "image";
   return item?.type?.startsWith("video/") ? "video" : "image";
 }
 
@@ -101,6 +101,7 @@ async function publishInstagram(post) {
       caption: post.caption || ""
     });
     creationId = carousel.id;
+    await waitForInstagramContainer(base, IG_ACCESS_TOKEN, creationId);
   } else {
     if (items.length !== 1) throw new Error("Instagram posts and Reels must contain exactly one media item");
     const item = items[0];
