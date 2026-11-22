@@ -71,3 +71,30 @@ npm start
 - TikTok direct posting requires an approved Content Posting API app, the `video.publish` scope, and a verified domain or URL prefix for media pulled from your server. Unaudited apps are restricted to private visibility.
 - The scheduler atomically claims due posts, prevents overlapping runs within one server process, and retries failed attempts with exponential backoff (up to five attempts).
 - Use mocked provider tests first. Do not enable live publishing until you have completed the platform app review, configured verified HTTPS media hosting, and tested with private/test content.
+
+## Phase 2: Hosted deployment
+
+Postflow can use Supabase Postgres for scheduled posts and Supabase Storage for uploaded and rendered media. If both `SUPABASE_URL` and `SUPABASE_SECRET_KEY` are set, the server uses Supabase. If both are unset, local development uses SQLite and local files. Set both or neither.
+
+### Supabase setup
+
+1. Create a Supabase project.
+2. Open the SQL Editor and run `supabase/migrations/20261122000100_postflow_schema.sql`.
+3. Copy the Project URL and the server-side Secret API key from Project Settings > API Keys.
+4. Set `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in the hosting provider's secret/environment settings.
+5. The migration creates the `posts` table, an atomic due-post claim function, and a public `postflow-media` bucket. The bucket is public so Meta and TikTok can fetch media, but uploads are performed by the server using the secret key. Never put the secret key in browser code.
+
+### Render deployment
+
+The repository includes a `render.yaml` Blueprint. Connect the repository to Render and create the Blueprint from the `phase-2/deployment` branch. Set the prompted secret values in Render before the first deploy:
+- `APP_PASSWORD`: a long, unique password for the Postflow dashboard.
+- `SUPABASE_URL` and `SUPABASE_SECRET_KEY`: from the Supabase project.
+- `IG_USER_ID`, `IG_ACCESS_TOKEN`, and `TIKTOK_ACCESS_TOKEN`: leave unset until the respective platform integration has been approved and tested.
+
+The Blueprint keeps `PUBLISH_MODE=dry-run`. Do not switch it to live until the hosted media URLs, provider credentials, and test posts have been verified. Render supplies the service hostname for `PUBLIC_BASE_URL`; Postflow normalizes it to HTTPS.
+
+A continuously running service is required for the in-process scheduler. Render's Free web services sleep after 15 minutes of inactivity and have ephemeral filesystems, so they are not suitable for reliable scheduled publishing. The Blueprint uses the paid Starter instance (currently listed from US$7/month). Remotion video rendering may need a larger instance if it exceeds the Starter memory limit. Review current provider pricing before deploying.
+
+### Local configuration
+
+Copy `.env.example` to `.env` for local use. Do not commit real credentials. For Supabase-backed local testing, set both Supabase variables and run the SQL migration against a development project. Keep production and development projects separate.

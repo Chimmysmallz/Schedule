@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: postflow
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUBLISH_MODE
+        value: dry-run
+      - key: SESSION_TTL_MS
+        value: "43200000"
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: MAX_REQUEST_BYTES
+        value: "16777216"
+      - key: SUPABASE_STORAGE_BUCKET
+        value: postflow-media
+      - key: APP_PASSWORD
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: IG_USER_ID
+        sync: false
+      - key: IG_ACCESS_TOKEN
+        sync: false
+      - key: TIKTOK_ACCESS_TOKEN
+        sync: false
+      - key: PUBLIC_BASE_URL
+        fromService:
+          type: web
+          name: postflow
+          property: host
