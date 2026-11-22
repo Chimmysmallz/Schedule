@@ -10,7 +10,12 @@ const { renderContentCard } = require("./renderContent");
 
 const host = process.env.HOST || "0.0.0.0";
 const port = Number(process.env.PORT || 4173);
-const publicBaseUrl = (process.env.PUBLIC_BASE_URL || `http://localhost:${port}`).replace(/\/$/, "");
+const configuredPublicBaseUrl = (process.env.PUBLIC_BASE_URL || `http://localhost:${port}`).replace(/\/$/, "");
+const publicBaseUrl = configuredPublicBaseUrl.startsWith("http") ? configuredPublicBaseUrl : `https://${configuredPublicBaseUrl}`;
+const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || "";
+const storageBucket = process.env.SUPABASE_STORAGE_BUCKET || "postflow-media";
+const useSupabaseStorage = Boolean(supabaseUrl && supabaseSecretKey);
 const mediaDir = path.join(__dirname, "data", "media");
 const publishMode = process.env.PUBLISH_MODE || "dry-run";
 const appPassword = process.env.APP_PASSWORD || "";
@@ -163,6 +168,17 @@ function validatePostBody(body) {
   return null;
 }
 
+async function uploadToSupabaseStorage(fileName, buffer, mimeType) {
+  if (!useSupabaseStorage) throw new Error("Supabase Storage is not configured");
+  const objectPath = fileName.split("/").map(encodeURIComponent).join("/");
+  const response = await fetch(`${supabaseUrl}/storage/v1/object/${storageBucket}/${objectPath}`, {
+    method: "POST",
+    headers: { apikey: supabaseSecretKey, Authorization: "Bearer " + supabaseSecretKey, "Content-Type": mimeType, "x-upsert": "false" },
+    body: buffer
+  });
+  if (!response.ok) throw new Error("Supabase media upload failed: " + (await response.text()).slice(0, 300));
+  return `${supabaseUrl}/storage/v1/object/public/${storageBucket}/${objectPath}`;
+}
 async function handleMediaUpload(request, response) {
   const body = await readRequestJson(request);
   if (!body.name || typeof body.name !== "string" || !body.data || typeof body.data !== "string") {
@@ -187,24 +203,22 @@ async function handleMediaUpload(request, response) {
   };
   const id = crypto.randomUUID();
   const fileName = `${id}${extensionByType[match[1]]}`;
-  await fsp.writeFile(path.join(mediaDir, fileName), buffer, { flag: "wx", mode: 0o600 });
-  sendJson(response, 201, {
-    id: fileName,
-    url: `${publicBaseUrl}/media/${fileName}`,
-    type: match[1]
-  });
+  const mediaUrl = useSupabaseStorage
+    ? await uploadToSupabaseStorage(fileName, buffer, match[1])
+    : (await fsp.writeFile(path.join(mediaDir, fileName), buffer, { flag: "wx", mode: 0o600 }), `${publicBaseUrl}/media/${fileName}`);
+  sendJson(response, 201, { id: fileName, url: mediaUrl, type: match[1] });
 }
 
 async function processDuePosts() {
   if (processingPromise) return processingPromise;
   processingPromise = (async () => {
     const nowIso = new Date().toISOString();
-    const due = store.claimDuePosts(nowIso, Number(process.env.SCHEDULER_BATCH_SIZE || 10));
+    const due = await store.claimDuePosts(nowIso, Number(process.env.SCHEDULER_BATCH_SIZE || 10));
     for (const post of due) {
       try {
         const result = publishMode === 'dry-run' ? { mode: 'dry-run' } : await publishPost(post, post.platform);
         if (result.pending) {
-          store.update(post.id, { status: 'publishing', providerResponse: result, error: null, retryAt: null });
+          await store.update(post.id, { status: 'publishing', providerResponse: result, error: null, retryAt: null });
         } else {
           store.update(post.id, { status: 'published', publishedAt: new Date().toISOString(), providerResponse: result, error: null, retryAt: null });
         }
@@ -223,7 +237,7 @@ async function processDuePosts() {
 }
 
 async function pollPublishingPosts() {
-  const pending = store.list().filter(post => post.status === 'publishing' && post.platform === 'tiktok' && post.providerResponse?.publish_id);
+  const pending = (await store.list()).filter(post => post.status === 'publishing' && post.platform === 'tiktok' && post.providerResponse?.publish_id);
   for (const post of pending.slice(0, 10)) {
     try {
       const statusResult = await getTikTokPublishStatus(post.providerResponse.publish_id);
@@ -248,6 +262,10 @@ function createServer() {
     const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
 
     try {
+      if (request.method === "GET" && url.pathname === "/health") {
+        sendJson(response, 200, { status: "ok" });
+        return;
+      }
       if (request.method === "GET" && url.pathname === "/api/config") {
         sendJson(response, 200, {
           authenticated: isAuthenticated(request),
@@ -334,11 +352,10 @@ function createServer() {
           accent: body.accent || "#8fa678",
           platform: body.platform === "tiktok" ? "tiktok" : "instagram"
         }, outputFile);
-        sendJson(response, 201, {
-          id: `${id}.mp4`,
-          url: `${publicBaseUrl}/media/rendered/${id}.mp4`,
-          type: "video/mp4"
-        });
+        const renderedUrl = useSupabaseStorage
+          ? await uploadToSupabaseStorage(`rendered/${id}.mp4`, await fsp.readFile(outputFile), "video/mp4")
+          : `${publicBaseUrl}/media/rendered/${id}.mp4`;
+        sendJson(response, 201, { id: `${id}.mp4`, url: renderedUrl, type: "video/mp4" });
         return;
       }
 
@@ -349,7 +366,7 @@ function createServer() {
 
       if (request.method === "GET" && url.pathname === "/api/posts") {
         if (!isAuthenticated(request)) { sendJson(response, 401, { error: "Authentication required" }); return; }
-        sendJson(response, 200, store.list());
+        sendJson(response, 200, await store.list());
         return;
       }
 
@@ -365,7 +382,7 @@ function createServer() {
           return;
         }
         const status = body.status || "scheduled";
-        const post = store.create({
+        const post = await store.create({
           id: crypto.randomUUID(),
           title: body.title.trim(),
           caption: body.caption === undefined ? body.title.trim() : body.caption,
@@ -390,7 +407,7 @@ function createServer() {
         const id = decodeURIComponent(postMatch[1]);
         if (request.method === "PATCH") {
           const body = await readRequestJson(request);
-          const current = store.get(id);
+          const current = await store.get(id);
           if (!current) {
             sendJson(response, 404, { error: "Post not found" });
             return;
@@ -410,11 +427,11 @@ function createServer() {
             sendJson(response, 400, { error: validationError });
             return;
           }
-          sendJson(response, 200, store.update(id, merged));
+          sendJson(response, 200, await store.update(id, merged));
           return;
         }
         if (request.method === "DELETE") {
-          if (store.delete(id)) {
+          if (await store.delete(id)) {
             response.writeHead(204, { "Cache-Control": "no-store" });
             response.end();
           } else {
@@ -436,7 +453,7 @@ function createServer() {
           sendJson(response, 404, { error: "Post not found" });
           return;
         }
-        sendJson(response, 200, store.update(id, {
+        sendJson(response, 200, await store.update(id, {
           status: "scheduled",
           retryCount: 0,
           retryAt: null,
