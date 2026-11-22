@@ -139,17 +139,23 @@ async function tiktokRequest(endpoint, token, body) {
   return data;
 }
 
+async function getTikTokCreatorInfo() {
+  const token = process.env.TIKTOK_ACCESS_TOKEN;
+  if (!token) throw new Error("Missing TIKTOK_ACCESS_TOKEN");
+  const result = await tiktokRequest("post/publish/creator_info/query/", token);
+  return result.data || {};
+}
+
 async function publishTikTok(post) {
   const token = process.env.TIKTOK_ACCESS_TOKEN;
   if (!token) throw new Error("Missing TIKTOK_ACCESS_TOKEN");
   const items = (post.media || []).map(item => ({ url: mediaUrl(item), type: mediaType(item) }));
   if (!items.length || items.some(item => !item.url)) throw new Error("TikTok publishing requires public media URLs");
 
-  const creator = await tiktokRequest("post/publish/creator_info/query/", token);
-  const options = creator.data?.privacy_level_options || [];
-  const requestedPrivacy = process.env.TIKTOK_PRIVACY_LEVEL || "SELF_ONLY";
-  const privacy = options.includes(requestedPrivacy) ? requestedPrivacy : options[0];
-  if (!privacy) throw new Error("TikTok did not return an available privacy level");
+  const creator = await getTikTokCreatorInfo();
+  const options = creator.privacy_level_options || [];
+  const privacy = post.privacyLevel;
+  if (!privacy || !options.includes(privacy)) throw new Error("Choose a TikTok privacy level returned by the creator-info endpoint before scheduling");
 
   let result;
   if (post.format === "carousel" || items.every(item => item.type === "image")) {
@@ -160,7 +166,7 @@ async function publishTikTok(post) {
         title: (post.title || "").slice(0, 90),
         description: (post.caption || "").slice(0, 4000),
         privacy_level: privacy,
-        disable_comment: creator.data?.comment_disabled ?? false,
+        disable_comment: creator.comment_disabled ?? false,
         auto_add_music: true
       },
       source_info: {
@@ -179,9 +185,9 @@ async function publishTikTok(post) {
       post_info: {
         title: (post.caption || post.title || "").slice(0, 2200),
         privacy_level: privacy,
-        disable_duet: creator.data?.duet_disabled ?? false,
+        disable_duet: creator.duet_disabled ?? false,
         disable_comment: creator.data?.comment_disabled ?? false,
-        disable_stitch: creator.data?.stitch_disabled ?? false
+        disable_stitch: creator.stitch_disabled ?? false
       },
       source_info: { source: "PULL_FROM_URL", video_url: items[0].url }
     });
@@ -202,4 +208,4 @@ async function publishPost(post, platform) {
   throw new Error(`Unsupported platform: ${platform}`);
 }
 
-module.exports = { publishPost, publishInstagram, publishTikTok, getTikTokPublishStatus, mediaType };
+module.exports = { publishPost, publishInstagram, publishTikTok, getTikTokPublishStatus, getTikTokCreatorInfo, mediaType };
