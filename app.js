@@ -7,21 +7,12 @@ const characterCount = document.getElementById("characterCount");
 const postDate = document.getElementById("postDate");
 const postTime = document.getElementById("postTime");
 
-let displayedDate = new Date(2026, 10, 1);
+let displayedDate = new Date();
 let selectedFormat = "Post";
 let selectedPlatforms = ["instagram"];
-
-const scheduledPosts = [
-  { date: "2026-11-02", time: "9:00 AM", title: "Studio journal", format: "post", platform: "instagram" },
-  { date: "2026-11-05", time: "11:30 AM", title: "Color stories", format: "carousel", platform: "instagram" },
-  { date: "2026-11-08", time: "6:30 PM", title: "Weekend edits", format: "reel", platform: "tiktok" },
-  { date: "2026-11-10", time: "12:00 PM", title: "Behind the scenes", format: "post", platform: "instagram" },
-  { date: "2026-11-13", time: "4:15 PM", title: "New collection", format: "carousel", platform: "instagram" },
-  { date: "2026-11-17", time: "7:00 PM", title: "Making the set", format: "reel", platform: "tiktok" },
-  { date: "2026-11-20", time: "10:00 AM", title: "Autumn textures", format: "post", platform: "instagram" },
-  { date: "2026-11-24", time: "5:45 PM", title: "Gift guide", format: "carousel", platform: "instagram" },
-  { date: "2026-11-27", time: "6:30 PM", title: "Holiday preview", format: "reel", platform: "tiktok" }
-];
+let scheduledPosts = [];
+let pendingMedia = [];
+let editingPostId = null;
 
 function dateKey(date) {
   const y = date.getFullYear();
@@ -39,6 +30,61 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function postDateParts(post) {
+  const date = new Date(post.scheduledAt);
+  return {
+    date: dateKey(date),
+    time: date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+  };
+}
+
+async function loadPosts() {
+  try {
+    const response = await fetch("/api/posts");
+    if (!response.ok) throw new Error("Could not load posts");
+    const posts = await response.json();
+    scheduledPosts = posts.map(post => ({
+      ...post,
+      ...postDateParts(post)
+    }));
+  } catch {
+    scheduledPosts = JSON.parse(localStorage.getItem("postflow.posts") || "[]");
+  }
+  renderCalendar();
+}
+
+async function loadAuth() {
+  try {
+    const response = await fetch("/api/config");
+    if (!response.ok) return;
+    const config = await response.json();
+    const authButton = document.getElementById("authButton");
+    authButton.hidden = !config.authRequired;
+    authButton.textContent = config.authenticated ? "Sign out" : "Sign in";
+  } catch {
+    // The interface remains usable in local development mode.
+  }
+}
+
+document.getElementById("authButton").addEventListener("click", async event => {
+  if (event.currentTarget.textContent === "Sign out") {
+    await fetch("/api/logout", { method: "POST" });
+  } else {
+    const password = window.prompt("Enter the Postflow password");
+    if (!password) return;
+    const response = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password })
+    });
+    if (!response.ok) {
+      showToast("Sign-in failed");
+      return;
+    }
+  }
+  await loadAuth();
+});
+
 function renderCalendar() {
   const year = displayedDate.getFullYear();
   const month = displayedDate.getMonth();
@@ -53,7 +99,7 @@ function renderCalendar() {
     const day = document.createElement("div");
     day.className = "day";
     if (date.getMonth() !== month) day.classList.add("muted");
-    if (dateKey(date) === "2026-11-20") day.classList.add("today");
+    if (dateKey(date) === dateKey(new Date())) day.classList.add("today");
 
     const number = document.createElement("span");
     number.className = "day-number";
@@ -77,19 +123,41 @@ function renderCalendar() {
           <span class="thumb">${post.format === "reel" ? "▶" : post.format === "carousel" ? "▦" : "◉"}</span>
           <span class="post-card-copy">
             <strong>${escapeHtml(post.title)}</strong>
-            <small>${post.time}</small>
+            <small>${post.time}${post.status ? ` • ${post.status}` : ""}</small>
             <span class="platform-badge">${post.platform === "tiktok" ? "♪" : "◎"}</span>
           </span>`;
-        card.addEventListener("click", () => showToast(`${post.title} • ${post.time}`));
+        card.addEventListener("click", () => {
+          if (post.status === "draft") {
+            openComposer(new Date(`${post.date}T12:00:00`), post);
+            return;
+          }
+          if (post.status === "failed") {
+            if (window.confirm(`Retry "${post.title}"?`)) retryPost(post.id);
+            return;
+          }
+          if (post.status === "scheduled" && window.confirm(`Cancel "${post.title}"?`)) {
+            cancelPost(post.id);
+            return;
+          }
+          showToast(`${post.title} • ${post.status || "published"}`);
+        });
         day.appendChild(card);
       });
     calendarGrid.appendChild(day);
   }
 }
 
-function openComposer(date) {
+function openComposer(date, post) {
   const chosen = date || displayedDate;
-  postDate.value = dateKey(chosen);
+  postDate.value = post ? post.scheduledAt?.slice(0, 10) || dateKey(chosen) : dateKey(chosen);
+  postTime.value = post?.scheduledAt
+    ? new Date(post.scheduledAt).toTimeString().slice(0, 5)
+    : "18:30";
+  editingPostId = post?.id || null;
+  if (post) {
+    caption.value = post.caption || "";
+    characterCount.textContent = caption.value.length;
+  }
   modal.classList.add("open");
   modal.setAttribute("aria-hidden", "false");
   caption.focus();
@@ -98,6 +166,7 @@ function openComposer(date) {
 function closeComposer() {
   modal.classList.remove("open");
   modal.setAttribute("aria-hidden", "true");
+  editingPostId = null;
 }
 
 function showToast(message) {
@@ -108,7 +177,27 @@ function showToast(message) {
   showToast.timer = setTimeout(() => toast.classList.remove("show"), 2400);
 }
 
-document.getElementById("newPostButton").addEventListener("click", () => openComposer(new Date(2026, 10, 20)));
+async function retryPost(id) {
+  const response = await fetch(`/api/posts/${encodeURIComponent(id)}/retry`, { method: "POST" });
+  if (!response.ok) {
+    showToast("Could not retry post");
+    return;
+  }
+  await loadPosts();
+  showToast("Post queued for retry");
+}
+
+async function cancelPost(id) {
+  const response = await fetch(`/api/posts/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!response.ok) {
+    showToast("Could not cancel post");
+    return;
+  }
+  await loadPosts();
+  showToast("Post cancelled");
+}
+
+document.getElementById("newPostButton").addEventListener("click", () => openComposer(new Date()));
 document.getElementById("closeModal").addEventListener("click", closeComposer);
 modal.addEventListener("click", event => { if (event.target === modal) closeComposer(); });
 document.addEventListener("keydown", event => { if (event.key === "Escape") closeComposer(); });
@@ -122,7 +211,7 @@ document.getElementById("nextMonth").addEventListener("click", () => {
   renderCalendar();
 });
 document.getElementById("todayButton").addEventListener("click", () => {
-  displayedDate = new Date(2026, 10, 20);
+  displayedDate = new Date();
   renderCalendar();
 });
 platformFilter.addEventListener("change", renderCalendar);
@@ -154,9 +243,31 @@ document.getElementById("mediaUpload").addEventListener("click", () => {
   document.getElementById("mediaInput").click();
 });
 
-document.getElementById("mediaInput").addEventListener("change", event => {
-  const count = event.target.files.length;
-  if (count) showToast(`${count} media file${count === 1 ? "" : "s"} added`);
+document.getElementById("mediaInput").addEventListener("change", async event => {
+  const files = Array.from(event.target.files);
+  if (!files.length) return;
+  showToast("Uploading media...");
+  pendingMedia = [];
+
+  for (const file of files) {
+    const data = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const response = await fetch("/api/media", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: file.name, data })
+    });
+    if (!response.ok) {
+      showToast("Media upload failed");
+      return;
+    }
+    pendingMedia.push(await response.json());
+  }
+  showToast(`${pendingMedia.length} media file${pendingMedia.length === 1 ? "" : "s"} added`);
 });
 
 document.getElementById("bestTime").addEventListener("click", () => {
@@ -164,12 +275,88 @@ document.getElementById("bestTime").addEventListener("click", () => {
   showToast("Best posting time selected");
 });
 
-document.getElementById("saveDraft").addEventListener("click", () => {
-  closeComposer();
-  showToast("Draft saved");
+document.getElementById("generateContent").addEventListener("click", async () => {
+  const topic = document.getElementById("contentTopic").value.trim();
+  if (!topic) {
+    showToast("Enter a topic or campaign idea");
+    return;
+  }
+  showToast("Generating copy...");
+  try {
+    const platform = selectedPlatforms[0];
+    const response = await fetch("/api/content/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic, platform, tone: "friendly" })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const content = await response.json();
+    caption.value = content.caption;
+    characterCount.textContent = caption.value.length;
+    showToast(`Copy generated with ${content.provider === "ai" ? "AI" : "templates"}`);
+  } catch {
+    showToast("Could not generate copy");
+  }
 });
 
-document.getElementById("schedulePost").addEventListener("click", () => {
+document.getElementById("renderContent").addEventListener("click", async () => {
+  const title = caption.value.trim() || document.getElementById("contentTopic").value.trim();
+  if (!title) {
+    showToast("Add a caption or topic first");
+    return;
+  }
+  showToast("Rendering Remotion video...");
+  try {
+    const response = await fetch("/api/content/render", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        caption: caption.value.trim(),
+        platform: selectedPlatforms[0]
+      })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const media = await response.json();
+    pendingMedia = [media];
+    showToast("Remotion video ready");
+  } catch {
+    showToast("Could not render video");
+  }
+});
+
+document.getElementById("saveDraft").addEventListener("click", async () => {
+  const title = caption.value.trim() || `${selectedFormat} post`;
+  const body = {
+    title,
+    caption: caption.value.trim(),
+    format: selectedFormat.toLowerCase(),
+    platform: selectedPlatforms[0],
+    status: "draft",
+    media: pendingMedia
+  };
+  try {
+    const method = editingPostId ? "PATCH" : "POST";
+    const url = editingPostId ? `/api/posts/${encodeURIComponent(editingPostId)}` : "/api/posts";
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) throw new Error("Could not save draft");
+    closeComposer();
+    caption.value = "";
+    pendingMedia = [];
+    editingPostId = null;
+    editingPostId = null;
+    await loadPosts();
+    showToast("Draft saved");
+  } catch {
+    showToast("Could not save draft");
+  }
+});
+
+document.getElementById("schedulePost").addEventListener("click", async () => {
   if (!selectedPlatforms.length) {
     showToast("Select at least one platform");
     return;
@@ -180,26 +367,44 @@ document.getElementById("schedulePost").addEventListener("click", () => {
   }
 
   const title = caption.value.trim() || `${selectedFormat} post`;
-  const time = new Date(`2026-01-01T${postTime.value}`).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit"
-  });
-  selectedPlatforms.forEach(platform => {
-    scheduledPosts.push({
-      date: postDate.value,
-      time,
-      title,
-      format: selectedFormat.toLowerCase(),
-      platform
-    });
-  });
+  const scheduledAt = new Date(`${postDate.value}T${postTime.value}:00`).toISOString();
+  const created = [];
+
+  const platformsToSchedule = editingPostId ? [selectedPlatforms[0]] : selectedPlatforms;
+  for (const platform of platformsToSchedule) {
+    try {
+      const body = {
+        title,
+        caption: caption.value.trim(),
+        format: selectedFormat.toLowerCase(),
+        platform,
+        scheduledAt,
+        status: "scheduled",
+        media: pendingMedia
+      };
+      const isEditing = Boolean(editingPostId);
+      const response = await fetch(isEditing ? `/api/posts/${encodeURIComponent(editingPostId)}` : "/api/posts", {
+        method: isEditing ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!response.ok) throw new Error(await response.text());
+      created.push(await response.json());
+    } catch {
+      showToast(`Could not schedule ${platform}`);
+      return;
+    }
+  }
+
   closeComposer();
   caption.value = "";
+  pendingMedia = [];
   characterCount.textContent = "0";
   const [year, month] = postDate.value.split("-").map(Number);
   displayedDate = new Date(year, month - 1, 1);
-  renderCalendar();
-  showToast("Post scheduled");
+  await loadPosts();
+  showToast(`${created.length} post${created.length === 1 ? "" : "s"} scheduled`);
 });
 
-renderCalendar();
+loadAuth();
+loadPosts();

@@ -48,6 +48,7 @@
           <p class="eyebrow">Workspace</p>
           <h1>Content calendar</h1>
         </div>
+        <button class="secondary-button" id="authButton" hidden>Sign in</button>
         <button class="primary-button" id="newPostButton">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
           New post
@@ -112,6 +113,9 @@
               <small>Drag and drop or browse</small>
               <input type="file" id="mediaInput" accept="image/*,video/*" multiple hidden />
             </button>
+            <button class="secondary-button" id="renderContent" style="width:100%;margin-top:12px">
+              Generate Remotion video
+            </button>
 
             <div class="format-row" role="radiogroup" aria-label="Post format">
               <button class="format-option active" data-format="Post">Post</button>
@@ -123,6 +127,10 @@
           <div class="details-column">
             <label class="field-label" for="caption">Caption</label>
             <textarea id="caption" rows="5" placeholder="Write a caption..."></textarea>
+            <div style="display:flex;gap:8px;margin:8px 0 16px">
+              <input id="contentTopic" type="text" placeholder="Topic or campaign idea" style="flex:1;height:38px;border:1px solid var(--line);border-radius:8px;padding:0 10px" />
+              <button class="secondary-button" id="generateContent" style="height:38px">Generate copy</button>
+            </div>
             <div class="character-count"><span id="characterCount">0</span> / 2,200</div>
 
             <label class="field-label">Platforms</label>
