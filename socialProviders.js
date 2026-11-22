@@ -186,7 +186,7 @@ async function publishTikTok(post) {
         title: (post.caption || post.title || "").slice(0, 2200),
         privacy_level: privacy,
         disable_duet: creator.duet_disabled ?? false,
-        disable_comment: creator.data?.comment_disabled ?? false,
+        disable_comment: creator.comment_disabled ?? false,
         disable_stitch: creator.stitch_disabled ?? false
       },
       source_info: { source: "PULL_FROM_URL", video_url: items[0].url }
