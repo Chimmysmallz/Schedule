@@ -47,7 +47,7 @@ test("Instagram carousel creates each child before publishing the parent", async
     ]
   });
   assert.equal(result.id, "published-carousel");
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 6);
 });
 
 test("TikTok queries creator settings and initializes an image carousel", async t => {
