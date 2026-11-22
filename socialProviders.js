@@ -17,7 +17,7 @@ async function requestJson(url, options = {}) {
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.error || (data.error && data.error.code !== "ok")) {
+    if (!response.ok || (data.error && data.error.code !== "ok")) {
       const message = data.error?.message || data.error?.error_description || `Social API returned ${response.status}`;
       const error = new Error(message);
       error.status = response.status;
