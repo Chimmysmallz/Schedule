@@ -62,7 +62,7 @@ test("TikTok queries creator settings and initializes an image carousel", async 
   });
   t.after(() => mock.restoreAll());
   const result = await publishTikTok({
-    format: "carousel", title: "Photos", caption: "A photo set",
+    format: "carousel", title: "Photos", caption: "A photo set", privacyLevel: "SELF_ONLY",
     media: [
       { url: "https://cdn.example/one.jpg", type: "image/jpeg" },
       { url: "https://cdn.example/two.jpg", type: "image/jpeg" }
