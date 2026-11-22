@@ -5,9 +5,11 @@ on:
     branches:
       - main
       - phase-1/reliability
+      - phase-2/deployment
   pull_request:
     branches:
       - main
+      - phase-1/reliability
 
 jobs:
   test:
