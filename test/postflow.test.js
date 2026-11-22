@@ -41,8 +41,8 @@ test("post validation rejects unsupported schedules and media", () => {
   }), /Unsupported platform/);
 });
 
-test("store creates, updates, retries, and deletes posts", () => {
-  const post = store.create({
+test("store creates, updates, retries, and deletes posts", async () => {
+  const post = await store.create({
     id: "test-post",
     title: "Test",
     caption: "Test caption",
@@ -55,19 +55,19 @@ test("store creates, updates, retries, and deletes posts", () => {
   });
   assert.equal(post.status, "scheduled");
 
-  const updated = store.update(post.id, { title: "Updated", status: "draft", scheduledAt: null });
+  const updated = await store.update(post.id, { title: "Updated", status: "draft", scheduledAt: null });
   assert.equal(updated.title, "Updated");
   assert.equal(updated.status, "draft");
 
-  const retried = store.update(post.id, {
+  const retried = await store.update(post.id, {
     status: "scheduled",
     retryCount: 0,
     retryAt: null,
     error: null
   });
   assert.equal(retried.status, "scheduled");
-  assert.equal(store.delete(post.id), true);
-  assert.equal(store.get(post.id), null);
+  assert.equal(await store.delete(post.id), true);
+  assert.equal(await store.get(post.id), null);
 });
 
 test("HTTP API can create, edit, cancel, and process posts", async () => {
