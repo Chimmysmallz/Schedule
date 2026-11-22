@@ -24,7 +24,7 @@ test("post validation rejects unsupported schedules and media", () => {
     platform: "instagram",
     status: "scheduled",
     scheduledAt: "2026-11-22T12:00:00Z",
-    media: []
+    media: [{ url: "https://cdn.example/photo.jpg", type: "image/jpeg" }]
   }), null);
   assert.match(validatePostBody({
     title: "",
@@ -98,7 +98,7 @@ test("HTTP API can create, edit, cancel, and process posts", async () => {
         format: "post",
         platform: "instagram",
         scheduledAt: "2026-11-22T00:00:00.000Z",
-        media: []
+        media: [{ url: "https://cdn.example/photo.jpg", type: "image/jpeg" }]
       })
     });
     assert.equal(createResponse.status, 201);
