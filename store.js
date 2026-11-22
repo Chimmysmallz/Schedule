@@ -157,6 +157,12 @@ const sqliteStore = {
   }
 };
 
+const hasSupabaseUrl = Boolean(process.env.SUPABASE_URL);
+const hasSupabaseSecret = Boolean(process.env.SUPABASE_SECRET_KEY);
+if (hasSupabaseUrl !== hasSupabaseSecret) {
+  throw new Error("Set both SUPABASE_URL and SUPABASE_SECRET_KEY, or leave both unset for local SQLite mode");
+}
+
 const sqliteStoreAsync = {
   list: async () => sqliteStore.list(),
   get: async id => sqliteStore.get(id),
