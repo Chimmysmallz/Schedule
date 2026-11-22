@@ -5,11 +5,11 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test",
+    "test": "POSTFLOW_DB=:memory: node --test",
     "test:api": "POSTFLOW_DB=:memory: node --test test/*.test.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
     "@remotion/bundler": "^4.0.545",
