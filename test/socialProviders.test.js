@@ -13,6 +13,7 @@ test("Instagram single image creates and publishes a media container", async t =
   const calls = [];
   mock.method(global, "fetch", async (url, options) => {
     calls.push({ url: String(url), options });
+    if (String(url).includes("fields=status_code")) return jsonResponse({ status_code: "FINISHED" });
     return jsonResponse(calls.length === 1 ? { id: "container-1" } : { id: "media-1" });
   });
   t.after(() => mock.restoreAll());
