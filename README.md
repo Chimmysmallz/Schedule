@@ -60,3 +60,14 @@ npm start
 - `PUBLIC_BASE_URL` must be reachable by Instagram and TikTok when they fetch media.
 - A real deployment should remain running continuously and use a durable database,
   authenticated accounts, and HTTPS credentials.
+
+## Reliability and controlled testing
+
+- Live publishing requires an HTTPS `PUBLIC_BASE_URL`, an `APP_PASSWORD`, and provider credentials for the platform being used.
+- Postflow uses expiring, HTTP-only, SameSite session cookies and rate-limits failed password attempts. Live mode always marks the session cookie Secure.
+- Instagram supports single-image feed posts, single-video Reels, and mixed image/video carousels. Video and carousel containers are checked for readiness before publishing.
+- TikTok supports single-video posts and photo posts/carousels. It queries creator settings before initiating a post and checks the publish status instead of marking an upload as published immediately.
+- The TikTok composer loads the creator's available privacy options and requires an explicit visibility choice. Dry-run mode offers `SELF_ONLY` as a local placeholder; live publishing validates the selected value against TikTok's current creator settings.
+- TikTok direct posting requires an approved Content Posting API app, the `video.publish` scope, and a verified domain or URL prefix for media pulled from your server. Unaudited apps are restricted to private visibility.
+- The scheduler atomically claims due posts, prevents overlapping runs within one server process, and retries failed attempts with exponential backoff (up to five attempts).
+- Use mocked provider tests first. Do not enable live publishing until you have completed the platform app review, configured verified HTTPS media hosting, and tested with private/test content.

@@ -4,7 +4,7 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const store = require("./store");
-const { publishPost } = require("./socialProviders");
+const { publishPost, getTikTokPublishStatus, getTikTokCreatorInfo } = require("./socialProviders");
 const { generateCopy } = require("./contentEngine");
 const { renderContentCard } = require("./renderContent");
 
@@ -16,6 +16,9 @@ const publishMode = process.env.PUBLISH_MODE || "dry-run";
 const appPassword = process.env.APP_PASSWORD || "";
 const maxRequestBytes = Number(process.env.MAX_REQUEST_BYTES || 12 * 1024 * 1024);
 const sessions = new Map();
+const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 43200000);
+const loginFailures = new Map();
+let processingPromise = null;
 
 fs.mkdirSync(mediaDir, { recursive: true });
 
@@ -76,22 +79,40 @@ async function serveStatic(requestPath, response) {
 }
 
 function sessionFromRequest(request) {
-  const cookie = request.headers.cookie || "";
+  const cookie = request.headers.cookie || '';
   const match = cookie.match(/(?:^|;\s*)postflow_session=([^;]+)/);
-  return match ? sessions.get(decodeURIComponent(match[1])) : null;
+  if (!match) return null;
+  const token = decodeURIComponent(match[1]);
+  const session = sessions.get(token);
+  if (!session || session.expiresAt <= Date.now()) { sessions.delete(token); return null; }
+  return session;
 }
 
 function isAuthenticated(request) {
-  return !appPassword || sessionFromRequest(request) === "authenticated";
+  return !appPassword || Boolean(sessionFromRequest(request));
 }
 
 function validateSameOrigin(request) {
   if (!request.headers.origin) return true;
-  const origin = new URL(request.headers.origin);
-  const hostHeader = request.headers.host;
-  return hostHeader && `${origin.host}` === hostHeader;
+  try { return Boolean(request.headers.host && new URL(request.headers.origin).host === request.headers.host); }
+  catch { return false; }
 }
 
+function secureCookie(request) {
+  return publishMode === 'live' || process.env.COOKIE_SECURE === 'true' || (process.env.COOKIE_SECURE !== 'false' && Boolean(request.socket.encrypted));
+}
+
+function loginRateLimited(request) {
+  const key = request.socket.remoteAddress || 'unknown';
+  const recent = (loginFailures.get(key) || []).filter(time => Date.now() - time < 900000);
+  loginFailures.set(key, recent);
+  return recent.length >= 10;
+}
+
+function recordLoginFailure(request) {
+  const key = request.socket.remoteAddress || 'unknown';
+  loginFailures.set(key, [...(loginFailures.get(key) || []), Date.now()]);
+}
 function validatePostBody(body) {
   if (typeof body.title !== "string" || !body.title.trim()) {
     return "title is required";
@@ -113,8 +134,29 @@ function validatePostBody(body) {
   if (typeof body.caption !== "string" && body.caption !== undefined) {
     return "caption must be text";
   }
+  if (body.privacyLevel != null && typeof body.privacyLevel !== "string") {
+    return "privacyLevel must be text";
+  }
+  if (publishMode === "live" && body.platform === "tiktok" && (body.status || "scheduled") === "scheduled" && !body.privacyLevel) {
+    return "Choose a TikTok privacy level before scheduling";
+  }
   if (!Array.isArray(body.media)) return "media must be an array";
   if (body.media.length > 10) return "At most 10 media items are allowed";
+  const mediaTypes = body.media.map(item => typeof item === "string"
+    ? (/\.mp4(?:$|\?)/i.test(item) ? "video" : "image")
+    : item?.type?.startsWith("video/") ? "video" : "image");
+  const format = body.format || "post";
+  if ((body.status || "scheduled") !== "draft" && body.platform === "instagram") {
+    if (format === "carousel" && (mediaTypes.length < 2 || mediaTypes.length > 10)) return "Instagram carousels require 2 to 10 media items";
+    if (format !== "carousel" && mediaTypes.length !== 1) return "Instagram posts and Reels require exactly one media item";
+    if (format === "reel" && mediaTypes[0] !== "video") return "Instagram Reels require a video";
+    if (format === "post" && mediaTypes[0] !== "image") return "Instagram feed posts require an image. Choose Reel for video.";
+  }
+  if ((body.status || "scheduled") !== "draft" && body.platform === "tiktok") {
+    if (format === "carousel" && (mediaTypes.length < 2 || mediaTypes.some(type => type !== "image"))) return "TikTok photo carousels require 2 to 10 images";
+    if (format === "reel" && (mediaTypes.length !== 1 || mediaTypes[0] !== "video")) return "TikTok videos require exactly one video";
+    if (format === "post" && (mediaTypes.length !== 1 || !mediaTypes[0])) return "TikTok posts require exactly one image or video";
+  }
   if (body.title.length > 2200 || (body.caption || "").length > 2200) {
     return "Title or caption is too long";
   }
@@ -154,38 +196,53 @@ async function handleMediaUpload(request, response) {
 }
 
 async function processDuePosts() {
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const due = store.duePosts(nowIso);
-  for (const post of due) {
-    const leasePost = store.update(post.id, { status: "processing", error: null, failedAt: null });
-    if (!leasePost) continue;
-    try {
-      const providerResult = publishMode === "dry-run"
-        ? { mode: "dry-run" }
-        : await publishPost(post, post.platform);
-      store.update(post.id, {
-        status: "published",
-        publishedAt: new Date().toISOString(),
-        providerResponse: providerResult,
-        error: null
-      });
-    } catch (error) {
-      const retryCount = post.retryCount + 1;
-      const backoffMinutes = Math.min(60, 2 ** (retryCount - 1));
-      const retryAt = new Date(Date.now() + backoffMinutes * 60_000).toISOString();
-      store.update(post.id, {
-        status: retryCount >= 5 ? "failed" : "failed",
-        retryCount,
-        retryAt: retryCount >= 5 ? null : retryAt,
-        failedAt: new Date().toISOString(),
-        error: error instanceof Error ? error.message : String(error)
-      });
+  if (processingPromise) return processingPromise;
+  processingPromise = (async () => {
+    const nowIso = new Date().toISOString();
+    const due = store.claimDuePosts(nowIso, Number(process.env.SCHEDULER_BATCH_SIZE || 10));
+    for (const post of due) {
+      try {
+        const result = publishMode === 'dry-run' ? { mode: 'dry-run' } : await publishPost(post, post.platform);
+        if (result.pending) {
+          store.update(post.id, { status: 'publishing', providerResponse: result, error: null, retryAt: null });
+        } else {
+          store.update(post.id, { status: 'published', publishedAt: new Date().toISOString(), providerResponse: result, error: null, retryAt: null });
+        }
+      } catch (error) {
+        const retryCount = post.retryCount + 1;
+        const terminal = retryCount >= 5 || error.retryable === false;
+        const delayMs = Math.min(6 * 60 * 60 * 1000, 60_000 * (2 ** Math.min(retryCount - 1, 8)));
+        const retryAt = terminal ? null : new Date(Date.now() + delayMs).toISOString();
+        store.update(post.id, { status: 'failed', retryCount, retryAt, failedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
+      }
     }
-  }
-  return due.length;
+    if (publishMode === 'live') await pollPublishingPosts();
+    return due.length;
+  })();
+  try { return await processingPromise; } finally { processingPromise = null; }
 }
 
+async function pollPublishingPosts() {
+  const pending = store.list().filter(post => post.status === 'publishing' && post.platform === 'tiktok' && post.providerResponse?.publish_id);
+  for (const post of pending.slice(0, 10)) {
+    try {
+      const statusResult = await getTikTokPublishStatus(post.providerResponse.publish_id);
+      const status = statusResult.data?.status;
+      if (status === 'PUBLISH_COMPLETE') {
+        store.update(post.id, { status: 'published', publishedAt: new Date().toISOString(), providerResponse: { ...post.providerResponse, status: statusResult.data } });
+      } else if (status === 'FAILED') {
+        const retryCount = post.retryCount + 1;
+        const terminal = retryCount >= 5;
+        const retryAt = terminal ? null : new Date(Date.now() + Math.min(6 * 60 * 60 * 1000, 60_000 * (2 ** (retryCount - 1)))).toISOString();
+        store.update(post.id, { status: 'failed', retryCount, retryAt, failedAt: new Date().toISOString(), error: statusResult.data?.fail_reason || 'TikTok publishing failed' });
+      } else {
+        store.update(post.id, { providerResponse: { ...post.providerResponse, status: statusResult.data } });
+      }
+    } catch (error) {
+      console.error('TikTok status check failed for ' + post.id + ':', error.message);
+    }
+  }
+}
 function createServer() {
   return http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
@@ -205,30 +262,43 @@ function createServer() {
       }
 
       if (request.method === "POST" && url.pathname === "/api/login") {
+        if (!validateSameOrigin(request)) { sendJson(response, 403, { error: 'Cross-origin request rejected' }); return; }
+        if (loginRateLimited(request)) { sendJson(response, 429, { error: 'Too many sign-in attempts. Try again later.' }); return; }
         const body = await readRequestJson(request);
-        if (!appPassword || body.password !== appPassword) {
-          sendJson(response, 401, { error: "Invalid credentials" });
-          return;
-        }
-        const token = crypto.randomBytes(32).toString("base64url");
-        sessions.set(token, "authenticated");
-        response.writeHead(204, {
-          "Set-Cookie": `postflow_session=${token}; HttpOnly; SameSite=Strict; Path=/`,
-          "Cache-Control": "no-store"
-        });
+        const supplied = Buffer.from(typeof body.password === 'string' ? body.password : '');
+        const expected = Buffer.from(appPassword);
+        const valid = Boolean(appPassword) && supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+        if (!valid) { recordLoginFailure(request); sendJson(response, 401, { error: 'Invalid credentials' }); return; }
+        loginFailures.delete(request.socket.remoteAddress || 'unknown');
+        const token = crypto.randomBytes(32).toString('base64url');
+        sessions.set(token, { expiresAt: Date.now() + SESSION_TTL_MS });
+        const secure = secureCookie(request) ? '; Secure' : '';
+        response.writeHead(204, { 'Set-Cookie': 'postflow_session=' + token + '; HttpOnly; SameSite=Strict; Path=/; Max-Age=' + Math.floor(SESSION_TTL_MS / 1000) + secure, 'Cache-Control': 'no-store' });
         response.end();
         return;
       }
-
       if (request.method === "POST" && url.pathname === "/api/logout") {
-        const cookie = request.headers.cookie || "";
+        if (!validateSameOrigin(request)) { sendJson(response, 403, { error: 'Cross-origin request rejected' }); return; }
+        const cookie = request.headers.cookie || '';
         const match = cookie.match(/(?:^|;\s*)postflow_session=([^;]+)/);
         if (match) sessions.delete(decodeURIComponent(match[1]));
-        response.writeHead(204, {
-          "Set-Cookie": "postflow_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
-          "Cache-Control": "no-store"
-        });
+        const secure = secureCookie(request) ? '; Secure' : '';
+        response.writeHead(204, { 'Set-Cookie': 'postflow_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' + secure, 'Cache-Control': 'no-store' });
         response.end();
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/api/tiktok/creator-info") {
+        if (!isAuthenticated(request)) {
+          sendJson(response, 401, { error: "Authentication required" });
+          return;
+        }
+        const creator = await getTikTokCreatorInfo();
+        sendJson(response, 200, {
+          privacyLevelOptions: creator.privacy_level_options || [],
+          commentDisabled: Boolean(creator.comment_disabled),
+          duetDisabled: Boolean(creator.duet_disabled),
+          stitchDisabled: Boolean(creator.stitch_disabled)
+        });
         return;
       }
 
@@ -278,6 +348,7 @@ function createServer() {
       }
 
       if (request.method === "GET" && url.pathname === "/api/posts") {
+        if (!isAuthenticated(request)) { sendJson(response, 401, { error: "Authentication required" }); return; }
         sendJson(response, 200, store.list());
         return;
       }
@@ -302,6 +373,7 @@ function createServer() {
           platform: body.platform,
           scheduledAt: status === "scheduled" ? new Date(body.scheduledAt).toISOString() : null,
           media: body.media,
+          privacyLevel: body.privacyLevel || null,
           status,
           createdAt: new Date().toISOString()
         });
@@ -330,6 +402,7 @@ function createServer() {
             platform: body.platform ?? current.platform,
             scheduledAt: body.scheduledAt ? new Date(body.scheduledAt).toISOString() : current.scheduledAt,
             media: body.media ?? current.media,
+            privacyLevel: body.privacyLevel ?? current.privacyLevel,
             status: body.status ?? current.status
           };
           const validationError = validatePostBody({ ...merged, status: merged.status });
@@ -416,6 +489,10 @@ function createServer() {
 if (require.main === module) {
   if (publishMode === "live" && !appPassword) {
     console.error("APP_PASSWORD is required when PUBLISH_MODE=live");
+    process.exit(1);
+  }
+  if (publishMode === "live" && !publicBaseUrl.startsWith("https://")) {
+    console.error("PUBLIC_BASE_URL must be an HTTPS URL when PUBLISH_MODE=live");
     process.exit(1);
   }
   const server = createServer();
